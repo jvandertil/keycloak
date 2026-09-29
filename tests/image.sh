@@ -82,8 +82,9 @@ done
 docker exec "$db" pg_isready -U keycloak >/dev/null
 
 # Start the production command against PostgreSQL with the same read-only
-# filesystem layout used above. Port 9000 is bound only to loopback so the
-# readiness probe can check the management endpoint from the test host.
+# filesystem layout used above. The main listener still uses HTTPS and its
+# required client authentication. For this test only, serve management probes
+# over HTTP; the host publishes port 9000 solely on loopback.
 docker run -d --name "$server" --network "$network" --user 1000:1000 \
   --read-only --tmpfs /tmp:rw,nosuid,nodev,uid=1000,gid=1000,mode=0700 \
   -v "$work/data-1000:/opt/keycloak/data" \
@@ -95,7 +96,7 @@ docker run -d --name "$server" --network "$network" --user 1000:1000 \
   -e KC_HOSTNAME=https://localhost:8443 \
   -e KC_HTTPS_CERTIFICATE_FILE=/run/tls/tls.crt \
   -e KC_HTTPS_CERTIFICATE_KEY_FILE=/run/tls/tls.key \
-  -e KC_HTTPS_MANAGEMENT_CLIENT_AUTH=none \
+  -e KC_HTTP_MANAGEMENT_SCHEME=http \
   "$image" start --optimized >/dev/null
 
 # Wait for /health/ready to report UP, rather than treating an open port or
@@ -103,7 +104,7 @@ docker run -d --name "$server" --network "$network" --user 1000:1000 \
 port=$(docker port "$server" 9000/tcp | sed 's/.*://')
 ready=0
 for _ in {1..120}; do
-  if curl -ksSf "https://127.0.0.1:$port/health/ready" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"UP"'; then
+  if curl -fsS "http://127.0.0.1:$port/health/ready" 2>/dev/null | grep -Eq '"status"[[:space:]]*:[[:space:]]*"UP"'; then
     ready=1; break
   fi
   if ! docker inspect -f '{{.State.Running}}' "$server" | grep -q true; then
