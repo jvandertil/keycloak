@@ -1,0 +1,4 @@
+# The image copies only files from the upstream builder stage. Do not send
+# host certificates, keys, or other working-directory files to Docker.
+*
+!docker-entrypoint.sh

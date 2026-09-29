@@ -1,0 +1,71 @@
+name: Publish GHCR image
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ghcr-main
+  cancel-in-progress: false
+jobs:
+  publish:
+    # Protect main in repository settings and require the Check image status.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Validate upstream tag and derive metadata
+        id: metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t bases < <(sed -nE 's/^FROM quay.io\/keycloak\/keycloak:([^ ]+).*/\1/p' Dockerfile)
+          test "${#bases[@]}" -eq 2
+          test "${bases[0]}" = "${bases[1]}"
+          [[ "${bases[0]}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+)?$ ]]
+          digest=$(docker buildx imagetools inspect "quay.io/keycloak/keycloak:${bases[0]}" --format '{{.Manifest.Digest}}')
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          count=$(git rev-list --count HEAD)
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "tag=${bases[0]}-r${count}" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+      - name: Build and test
+        run: bash tests/image.sh
+      - name: Sign in to GHCR
+        run: echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+      - name: Refuse existing tags
+        shell: bash
+        env:
+          IMAGE: ${{ steps.metadata.outputs.image }}
+          RELEASE_TAG: ${{ steps.metadata.outputs.tag }}
+        run: |
+          set -euo pipefail
+          for tag in "$RELEASE_TAG" "sha-$GITHUB_SHA"; do
+            if docker manifest inspect "$IMAGE:$tag" >/dev/null 2>&1; then
+              echo "Tag already exists: $IMAGE:$tag" >&2
+              exit 1
+            fi
+          done
+      - name: Build and push immutable tags
+        shell: bash
+        env:
+          IMAGE: ${{ steps.metadata.outputs.image }}
+          RELEASE_TAG: ${{ steps.metadata.outputs.tag }}
+          UPSTREAM_DIGEST: ${{ steps.metadata.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker build --pull \
+            --build-arg "UPSTREAM_DIGEST=$UPSTREAM_DIGEST" \
+            --build-arg "UPSTREAM_VERSION=${RELEASE_TAG%-r*}" \
+            --build-arg "SOURCE_REPOSITORY=https://github.com/$GITHUB_REPOSITORY" \
+            --build-arg "SOURCE_REVISION=$GITHUB_SHA" \
+            -t "$IMAGE:$RELEASE_TAG" -t "$IMAGE:sha-$GITHUB_SHA" .
+          docker push "$IMAGE:$RELEASE_TAG"
+          docker push "$IMAGE:sha-$GITHUB_SHA"
+          docker image inspect "$IMAGE:$RELEASE_TAG" --format '{{index .RepoDigests 0}}'
