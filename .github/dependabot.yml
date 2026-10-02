@@ -5,7 +5,7 @@ updates:
     cooldown:
       default-days: 0
     schedule:
-      interval: weekly
+      interval: daily
     groups:
       keycloak-base:
         patterns:
