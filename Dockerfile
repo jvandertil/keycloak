@@ -1,4 +1,4 @@
-FROM quay.io/keycloak/keycloak:26.7.4-0 AS builder
+FROM quay.io/keycloak/keycloak:26.8.0-0 AS builder
 
 ENV KC_HEALTH_ENABLED=true \
     KC_METRICS_ENABLED=true \
@@ -8,7 +8,7 @@ ENV KC_HEALTH_ENABLED=true \
 # Add provider JARs here, before build. Normalize their timestamps if added.
 RUN /opt/keycloak/bin/kc.sh build
 
-FROM quay.io/keycloak/keycloak:26.7.4-0
+FROM quay.io/keycloak/keycloak:26.8.0-0
 
 USER 0
 COPY --from=builder /opt/keycloak/ /opt/keycloak/
