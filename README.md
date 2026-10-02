@@ -9,7 +9,7 @@ No providers or deployment files are included. The Docker context contains only 
 
 From any directory, run `sh path/to/repository/build.sh` with Docker Buildx available. It resolves the upstream image digest and embeds it as `org.opencontainers.image.base.digest`, along with the exact upstream tag and source commit. For a full local check, run `bash tests/image.sh` on a Linux Docker host with `sudo`, `openssl`, and `curl`. The test builds the image, checks three numeric identities and writable paths, rejects root IDs, starts `start --optimized` with temporary PostgreSQL and TLS, waits for `/health/ready`, then sends SIGTERM.
 
-The image defaults to numeric `1000:1000`. `PUID` and `PGID` are declarations checked by the entrypoint; environment variables cannot alter a Linux process identity. Set Docker's `--user` or Compose's `user:` to select the actual identity. The entrypoint rejects UID or GID 0 and mismatches, then uses `exec` to start Keycloak. It never runs as root or changes ownership at startup.
+The image defaults to numeric `1000:1000`. Set Docker's `--user UID:GID` or Compose's `user: "UID:GID"` to select another identity. No identity environment variables are needed. The entrypoint rejects UID or GID 0, then uses `exec` to start Keycloak. It never runs as root or changes ownership at startup.
 
 The application tree is readable by arbitrary numeric identities. `/opt/keycloak/data` and `/tmp` must be writable by the selected identity. The built-in data directory is owned by `1000:1000`, so another identity needs a bind mount or pre-owned volume at `/opt/keycloak/data`. Use a private tmpfs for `/tmp`; no world-writable directory or privileged container is needed. A read-only root filesystem is supported with those two writable paths. Arbitrary IDs are supported subject to host filesystem and mounted-file permissions. Supplemental group access for private keys can be configured with `--group-add` or Compose `group_add` when needed.
 
@@ -23,7 +23,6 @@ docker run --name keycloak --user 10001:10001 \
   -v /srv/keycloak/data:/opt/keycloak/data \
   -v /srv/keycloak/tls/tls.crt:/run/tls/tls.crt:ro \
   -v /srv/keycloak/tls/tls.key:/run/tls/tls.key:ro \
-  -e PUID=10001 -e PGID=10001 \
   -e KC_DB_URL='jdbc:postgresql://db.example:5432/keycloak' \
   -e KC_DB_USERNAME=keycloak -e KC_DB_PASSWORD \
   -e KC_HOSTNAME='https://login.example.com' \
@@ -38,16 +37,14 @@ For PEM private keys, use a host mode such as `0640`, with the file owned by the
 
 ## Compose
 
-Keep the Compose file in a deployment directory outside this repository. Set `PUID` and `PGID` in your shell or a deployment-only `.env` file there. Compose interpolation sets the numeric `user:` field; the image checks the corresponding environment values. Set `KC_DB_PASSWORD` with a secret mechanism appropriate for your deployment.
+Keep the Compose file in a deployment directory outside this repository. Set the numeric identity with `user:` and match the tmpfs ownership to it. This example uses `10001:10001`; prepare the data directory and mounted-file permissions for that identity as in the Docker example. Set `KC_DB_PASSWORD` with a secret mechanism appropriate for your deployment.
 
 ```yaml
 services:
   keycloak:
     image: ghcr.io/jvandertil/keycloak@sha256:REPLACE_WITH_PUBLISHED_DIGEST
-    user: "${PUID:?}:${PGID:?}"
+    user: "10001:10001"
     environment:
-      PUID: "${PUID:?}"
-      PGID: "${PGID:?}"
       KC_DB_URL: "${KC_DB_URL:?}"
       KC_DB_USERNAME: "${KC_DB_USERNAME:?}"
       KC_DB_PASSWORD: "${KC_DB_PASSWORD:?}"
@@ -60,14 +57,14 @@ services:
       - ./tls/tls.key:/run/tls/tls.key:ro
     read_only: true
     tmpfs:
-      - /tmp:rw,nosuid,nodev,uid=${PUID:?},gid=${PGID:?},mode=0700
+      - /tmp:rw,nosuid,nodev,uid=10001,gid=10001,mode=0700
     ports:
       - "8443:8443"
     mem_limit: 2g
     command: ["start", "--optimized"]
 ```
 
-The default `1000:1000` works without `PUID` or `PGID` when Docker's `user` is not overridden. You can also use Compose `user:` without those environment variables; the entrypoint still rejects UID/GID 0. Choose values that can read every mounted file and write the data volume and tmpfs. Do not expose port 9000 publicly. Health and metrics are on the management port; probe `/health/ready` from a trusted internal network. With HTTPS enabled, the management endpoint uses HTTPS unless configured separately. Expose 9000 only to your monitoring network if an external probe needs it.
+Omit `user:` to use the default `1000:1000`, and adjust tmpfs ownership and mounted-file permissions accordingly. The entrypoint rejects UID/GID 0. Choose values that can read every mounted file and write the data volume and tmpfs. Do not expose port 9000 publicly. Health and metrics are on the management port; probe `/health/ready` from a trusted internal network. With HTTPS enabled, the management endpoint uses HTTPS unless configured separately. Expose 9000 only to your monitoring network if an external probe needs it.
 
 Keycloak's default heap can use up to 70% of the container memory limit. Set a limit in production; 2 GiB is a reasonable small production starting point, then size it from observed workload and memory use. Proxy settings such as `KC_PROXY_HEADERS` and trusted proxy addresses belong in runtime configuration.
 

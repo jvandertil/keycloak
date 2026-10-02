@@ -67,7 +67,7 @@ for identity in 1000:1000 1001:1002 20001:30001; do
   mkdir "$work/data-$uid"
   chmod 700 "$work/data-$uid"
   sudo chown "$identity" "$work/data-$uid"
-  docker run --rm --user "$identity" -e "PUID=$uid" -e "PGID=$gid" \
+  docker run --rm --user "$identity" \
     --read-only --tmpfs "/tmp:rw,nosuid,nodev,uid=$uid,gid=$gid,mode=0700" \
     -v "$work/data-$uid:/opt/keycloak/data" "$image" --version >/dev/null
   docker run --rm --user "$identity" --entrypoint /bin/sh \
@@ -77,23 +77,10 @@ for identity in 1000:1000 1001:1002 20001:30001; do
   passed
 done
 
-# Reject root in either half of the process identity, then reject invalid
-# PUID/PGID declarations even when Docker itself selects a valid user.
+# Reject root in either half of the process identity.
 for identity in 0:1000 1000:0; do
   check="Root identity rejection ($identity)"
   if docker run --rm --user "$identity" "$image" --help >/dev/null 2>&1; then
-    result=0
-  else
-    result=$?
-  fi
-  if [[ "$result" != 64 ]]; then
-    echo "Expected entrypoint exit 64, got $result" >&2; exit 1
-  fi
-  passed
-done
-for invalid in 'PUID=0' 'PGID=0' 'PUID=abc' 'PGID=-1'; do
-  check="Invalid identity declaration rejection ($invalid)"
-  if docker run --rm --user 1000:1000 -e "$invalid" "$image" --help >/dev/null 2>&1; then
     result=0
   else
     result=$?
@@ -129,12 +116,11 @@ passed
 # required client authentication. For this test only, serve management probes
 # over HTTP; the host publishes port 9000 solely on loopback.
 check='Keycloak start --optimized and /health/ready'
-docker run -d --name "$server" --network "$network" --user 1000:1000 \
+docker run -d --name "$server" --network "$network" \
   --read-only --tmpfs /tmp:rw,nosuid,nodev,uid=1000,gid=1000,mode=0700 \
   -v "$work/data-1000:/opt/keycloak/data" \
   -v "$work/tls.crt:/run/tls/tls.crt:ro" -v "$work/tls.key:/run/tls/tls.key:ro" \
   -p 127.0.0.1::9000 \
-  -e PUID=1000 -e PGID=1000 \
   -e KC_DB_URL="jdbc:postgresql://$db:5432/keycloak" \
   -e KC_DB_USERNAME=keycloak -e KC_DB_PASSWORD=test-only \
   -e KC_HOSTNAME=https://localhost:8443 \
