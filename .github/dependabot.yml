@@ -2,6 +2,8 @@ version: 2
 updates:
   - package-ecosystem: docker
     directory: /
+    cooldown:
+      default-days: 0
     schedule:
       interval: weekly
     groups:
