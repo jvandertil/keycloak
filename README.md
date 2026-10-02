@@ -70,8 +70,6 @@ Keycloak's default heap can use up to 70% of the container memory limit. Set a l
 
 ## Versioning, upstream tracking, and publication
 
-Weekly Dependabot Docker checks can propose base-image changes. Dependabot handling of image tags with suffixes such as `26.7.4-0` is not guaranteed here, so a separate weekly workflow checks stable `keycloak/keycloak` GitHub releases, verifies a matching Quay tag, and opens a review PR changing both `FROM` lines. Review both lines and release notes. Upstream PRs are never auto-merged. 
-
 The GHCR workflow runs on `main`, rebuilds and runs the image checks, then publishes `ghcr.io/jvandertil/keycloak:<exact-upstream-tag>-r<main-commit-count>` and `sha-<full-commit-sha>`. For example, `26.7.4-0-r3` uses `r3` for the repository's full-history commit count, **not** a Keycloak patch number. Docker tags cannot contain `+`. The workflow checks whether either tag exists and refuses to reuse it. Tags are convenient references; deploy by the published `sha256` image digest. OCI labels record the exact upstream version, upstream image digest, repository URL, and source commit. Avoid shallow Git history when deriving `rN`.
 
 For an upgrade, review the upstream release and migration notes, update both `FROM` lines through a PR, run the image checks, deploy the new digest to a staging environment, back up PostgreSQL, and test login and readiness before promoting. Treat Keycloak database migrations as part of the deployment plan; keep a rollback strategy that accounts for schema changes.
